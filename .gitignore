@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+_pycache
+note.md
+Agent.md
+agent.md
+outputs/lora/football_player_v1.safetensors
+models/stable_diffusion/v1-5-pruned-emaonly.safetensors
