@@ -1,132 +1,118 @@
 # Football Player Generative AI
 
-Dự án cá nhân dùng **Stable Diffusion 1.5** và **LoRA** để tạo hình ảnh cầu thủ bóng đá Việt Nam theo phong cách anime, cinematic và action từ prompt. Mục tiêu là giữ lại các đặc trưng của chủ đề bóng đá như áo đấu, số áo, sân vận động và tư thế thi đấu.
+## 1. Giới thiệu dự án
 
-## Demo
+Dự án cá nhân tạo ảnh cầu thủ bóng đá Việt Nam theo phong cách **anime** từ mô tả văn bản, sử dụng **Stable Diffusion kết hợp LoRA fine-tuning**. Phạm vi gồm chuẩn bị dữ liệu, huấn luyện LoRA và xây dựng pipeline suy luận local.
 
-### Ảnh trong dataset
+Dự án đã thử nghiệm **Stable Diffusion 1.5**; pipeline hiện tại dùng **Waifu Diffusion (WD) 1.5 Beta3**, thuộc họ **SD2**, với `v_prediction`. Hai nhóm model và LoRA được lưu riêng.
 
-![Ảnh cầu thủ trong dataset](dataset/VNfootballer/5_player10/001.jpg)
+## 2. Công nghệ sử dụng
 
-### Ảnh được tạo bằng Stable Diffusion 1.5 + LoRA
+| Công nghệ | Vai trò |
+|---|---|
+| Python, PyTorch, CUDA | Xây dựng pipeline, xử lý tensor và chạy model trên GPU |
+| Hugging Face Diffusers, Transformers, PEFT | Nạp Stable Diffusion, text encoder, tokenizer, scheduler và adapter LoRA |
+| LoRA, `networks.lora` | Fine-tuning; mã công cụ sd-scripts tại `tools/sd-scripts/` |
+| Safetensors, NumPy, Pillow | Đọc checkpoint, kiểm tra trọng số và lưu ảnh |
+| TensorBoard | File log huấn luyện được lưu trong `outputs/logs/` |
 
-![Ảnh cầu thủ anime được tạo bởi LoRA](inference_outputs/sd15_lora_seed42_20260909-224339.png)
+## 3. Kiến trúc hệ thống
 
-Ảnh mẫu được tạo ở độ phân giải 512x512 với LoRA scale mặc định là `0.8`.
-
-## Pipeline
-
-```text
-Dataset ảnh cầu thủ Việt Nam + caption
-                |
-                v
-       Kohya_ss train LoRA
-                |
-                v
-Stable Diffusion 1.5 + football_player_v1.safetensors
-                |
-                v
-        Local inference bằng inference.py
-                |
-                v
-       Ảnh PNG trong inference_outputs/
+```mermaid
+flowchart LR
+    subgraph T["Huấn luyện"]
+        A["Ảnh + caption chuẩn hóa"] --> B["LoRA fine-tuning"]
+        C["Model nền"] --> B
+        B --> D["Checkpoint LoRA"]
+    end
+    subgraph I["Sinh ảnh"]
+        E["WD Beta3 + cấu hình local"] --> F["Nạp model + scheduler"]
+        F --> L["Kiểm tra và nạp LoRA"]
+        L --> G["Sinh ảnh"]
+        P["Prompt + seed"] --> G
+        G --> H["Lưu PNG"]
+    end
+    D --> L
 ```
 
-## Tính năng
+Huấn luyện điều chỉnh model theo chủ đề cầu thủ. Suy luận kiểm tra, nạp model và LoRA, rồi sinh ảnh. Các bước được tách thành module trong [src/inference/](src/inference/).
 
-- Huấn luyện LoRA trên bộ dữ liệu cầu thủ bóng đá Việt Nam.
-- Tạo ảnh cầu thủ phong cách anime/cinematic bằng prompt.
-- Hỗ trợ điều chỉnh prompt, negative prompt, số bước sinh ảnh, CFG scale, LoRA scale và seed.
-- Tự động chọn checkpoint LoRA `.safetensors` mới nhất trong `outputs/lora/`.
-- Hỗ trợ chạy GPU CUDA và fallback sang CPU.
-- Có tối ưu bộ nhớ bằng VAE slicing và CPU offload khi `accelerate` khả dụng.
+## 4. Dataset và huấn luyện
 
-## Kết quả hiện tại
+Dataset hiện có **540 ảnh và 540 caption**, chia thành **18 thư mục**, mỗi thư mục 30 cặp cùng basename. Ảnh tập trung vào cầu thủ nam và trang phục bóng đá. Caption một dòng mô tả ngoại hình, hành động, góc nhìn và nền; cả 540 caption dùng tiền tố `vnfootballer, anime style, Vietnamese male football player`.
 
-LoRA hiện tại cho kết quả tốt ở các đặc điểm:
+Thông số dưới đây đọc từ metadata checkpoint **LoRA WD Beta3 cuối**:
 
-- Phong cách anime.
-- Chủ đề bóng đá và các tư thế thi đấu.
-- Bối cảnh sân vận động và cảm giác cinematic.
-- Áo đấu và số áo ở mức khá tốt.
+| Thông số | Giá trị |
+|---|---|
+| Model nền | `wd-beta3-base-fp16.safetensors`, `sd_v2_v` |
+| Độ phân giải cấu hình | 768×768; bật bucket |
+| LoRA rank / alpha | 16 / 8 |
+| Epoch / bước đã lưu | 8 / 10.800 |
+| Learning rate UNet / text encoder | `1e-4` / `2e-5` |
+| Optimizer / precision / scheduler | AdamW / fp16 / cosine |
+| Seed / repeat | 42 / 5 |
+| Caption | Shuffle; giữ 3 token đầu |
 
-Các chi tiết nhỏ như logo, họa tiết áo và số trên quần đôi lúc chưa chính xác hoàn toàn.
+Repeat 5 tương ứng 2.700 lượt ảnh mỗi epoch. Nhóm LoRA SD 1.5 trước đó có thiết lập 512×512, rank/alpha 16/16 và AdamW8bit. Lệnh và môi trường huấn luyện gốc **chưa xác minh đầy đủ**.
 
-## Cấu trúc chính
+## 5. Kết quả thực nghiệm
+
+Dự án lưu **24 ảnh PNG**, **4 checkpoint SD 1.5** và **8 checkpoint WD**. Dưới đây là ba ảnh từ `inference_outputs/`; bấm vào ảnh để xem PNG gốc.
+
+| Toàn thân anime · 768×1024 | Áo đấu · 768×768 | Chân dung · 768×768 |
+|:---:|:---:|:---:|
+| [<img src="assets/cau_thu_toan_than_20261007.jpg" width="250" alt="Cầu thủ anime toàn thân mặc áo đỏ trên sân vận động">](inference_outputs/20261007_014932_824971_seed42_01.png) | [<img src="assets/ao_dau_20261007.jpg" width="250" alt="Ảnh sinh tập trung vào áo đấu đỏ và sân vận động">](inference_outputs/20261007_014433_155628_seed42_01.png) | [<img src="assets/chan_dung_20260928.jpg" width="250" alt="Ảnh chân dung nhân vật mặc áo bóng đá đỏ">](inference_outputs/20260928_215053_459217_seed42_01.png) |
+
+Ảnh toàn thân thể hiện phong cách anime, áo đỏ và sân vận động. Hạn chế quan sát được: số áo–quần không nhất quán, khung hình bị cắt ở mẫu áo đấu và phong cách khuôn mặt khác nhau giữa các mẫu.
+
+PNG thiếu metadata đầy đủ về checkpoint, prompt và cấu hình sinh, nên **chưa thể so sánh công bằng giữa các epoch**. Chưa có đánh giá định lượng về chất lượng hoặc danh tính cầu thủ. Bản JPEG trong `assets/` giữ nguyên kích thước và bố cục.
+
+## 6. Cấu trúc dự án
 
 ```text
 .
-├── configs/                         # Cấu hình huấn luyện LoRA
-├── dataset/VNfootballer/            # Ảnh và caption huấn luyện
-├── inference.py                     # Script sinh ảnh local
-├── inference_outputs/               # Ảnh sinh ra từ inference
-├── models/stable_diffusion/         # Base model SD 1.5 (local)
-└── outputs/lora/                    # Checkpoint và sample của LoRA
+├── src/inference/       # Cấu hình, validator, loader, scheduler, generator
+├── test_inference.py    # Script chạy xuyên suốt và kiểm tra PNG
+├── configs/             # Cấu hình huấn luyện SD 1.5 cũ
+├── dataset/VNfootballer/ # Ảnh–caption (local)
+├── models/              # Model nền và cấu hình Diffusers (local)
+├── outputs/lora/        # Hai nhóm checkpoint SD 1.5 và WD
+├── outputs/logs/        # Log huấn luyện
+├── inference_outputs/   # PNG kết quả
+├── assets/              # Ảnh minh họa cho README
+└── tools/sd-scripts/    # Mã công cụ huấn luyện (local)
 ```
 
-## Cài đặt
+## 7. Cài đặt và sử dụng
 
-Tạo môi trường Python và cài các thư viện cần thiết:
+Dùng **Python 3.12** và **PyTorch có CUDA** phù hợp với máy. Thiết lập tham khảo từ thư mục gốc:
 
-```bash
-python -m venv .venv
-.venv\\Scripts\\activate
-pip install torch diffusers transformers accelerate safetensors Pillow
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install torch diffusers==0.33.1 transformers==4.54.1 accelerate==1.6.0 peft==0.20.0 safetensors==0.4.5 numpy Pillow
 ```
 
-GPU NVIDIA có CUDA được khuyến nghị. Base model và LoRA checkpoint cần được đặt ở các vị trí sau:
+Tải `wd-beta3-base-fp16.safetensors` và các file cấu hình từ [kho WD Beta3 trên Hugging Face](https://huggingface.co/waifu-diffusion/wd-1-5-beta3/tree/main). Đặt checkpoint tại `models/stable_diffusion/wd-1-5-beta3/`; đặt `model_index.json` cùng các thư mục cấu hình `scheduler/`, `text_encoder/`, `tokenizer/`, `unet/`, `vae/` trong thư mục con `config/`. Giữ đầy đủ file tokenizer; trọng số model nền và dataset được Git ignore.
 
-```text
-models/stable_diffusion/v1-5-pruned-emaonly.safetensors
-outputs/lora/football_player_v1.safetensors
+Chạy với checkpoint LoRA WD cụ thể:
+
+```powershell
+.\.venv\Scripts\python.exe test_inference.py "outputs/lora/lora_wf1.5_beta3/vnfootball_anime_wd15_v1 (1).safetensors"
 ```
 
-Các file model lớn được liệt kê trong `.gitignore` để không đưa vào repository.
+Script dùng mặc định **768×1024, 30 bước, CFG 7.5, seed 42, Euler ancestral** và lưu PNG trong `inference_outputs/`. Chỉnh prompt và tham số tại [GenerationConfig](src/inference/config.py); script chỉ nhận đối số checkpoint, chưa có cờ CLI khác.
 
-## Chạy inference
+Chưa có lockfile được kiểm chứng; `.venv` local thiếu interpreter gốc nên chưa chạy lại inference.
 
-Chạy với prompt mặc định:
+## 8. Vấn đề kỹ thuật và giải pháp
 
-```bash
-python inference.py
-```
+- **LoRA Conv2d 1×1 không khớp Linear:** checkpoint chứa tensor 4D tại `proj_in/proj_out`, trong khi pipeline yêu cầu 2D. Validator kiểm tra kernel, rank và kích thước; loader chuyển đúng tensor được chấp thuận trong bộ nhớ, giữ nguyên file checkpoint và xác nhận adapter sau nạp.
+- **Lỗi chuyển đổi OpenCLIP:** ghi chú thực nghiệm ghi nhận Diffusers 0.32.1 tách Q/K/V theo `projection_dim=512` thay vì `hidden_size=1024`. Dự án chuyển sang 0.33.1; mã thư viện local dùng `hidden_size` đúng với cấu hình text encoder.
+- **Kiểm soát model và trạng thái adapter:** loader ghi nhận SHA-256 model nền; validator đối chiếu WD chuẩn, module/tensor và yêu cầu pipeline chưa gắn LoRA. Script báo lỗi theo từng pha.
 
-Ví dụ tạo một cầu thủ Việt Nam đang sút bóng:
+## 9. Hướng phát triển
 
-```bash
-python inference.py ^
-  --prompt "vietnam football player, red soccer uniform, jersey number 19, kicking a ball, stadium, anime cinematic style" ^
-  --negative_prompt "low quality, blurry, deformed, text, watermark" ^
-  --steps 30 ^
-  --cfg_scale 7.5 ^
-  --lora_scale 0.8 ^
-  --seed 42 ^
-  --output_dim 512x512
-```
-
-Ảnh sau khi tạo sẽ được lưu với tên dạng:
-
-```text
-inference_outputs/sd15_lora_seed42_YYYYMMDD-HHMMSS.png
-```
-
-## Huấn luyện LoRA
-
-Cấu hình huấn luyện tham khảo nằm trong `outputs/lora/config_lora-20260906-154740.toml` và cấu hình dự án nằm trong `configs/footballer_lora_512_ep3.toml`.
-
-Một số thông số chính của checkpoint hiện tại:
-
-- Base model: Stable Diffusion 1.5.
-- Resolution: 512x512.
-- Epochs: 3.
-- LoRA network dimension: 16.
-- Optimizer: AdamW8bit.
-- Learning rate: 1e-4.
-- Mixed precision: fp16.
-- Seed: 42.
-
-Có thể tiếp tục tinh chỉnh dữ liệu caption, logo áo đấu và khuôn mặt nếu cần độ chính xác cao hơn.
-
-## Trạng thái dự án
-
-Inference local đã hoạt động với checkpoint LoRA hiện tại. Hướng phát triển tiếp theo là kiểm thử thêm ảnh khuôn mặt thật và cải thiện độ ổn định của các chi tiết nhỏ trên áo đấu.
+- Lưu prompt, seed, cấu hình và checkpoint cùng ảnh để đánh giá qua từng epoch.
+- Bổ sung CLI, lockfile và quy trình tái lập huấn luyện.
+- Đánh giá tính nhất quán khuôn mặt, trang phục; thử nghiệm IP-Adapter với ảnh tham chiếu. IP-Adapter hiện có cấu hình và asset, chưa tích hợp suy luận.
