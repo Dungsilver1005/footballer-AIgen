@@ -1,8 +1,20 @@
+# Python environment & cache
 .venv/
 __pycache__/
-_pycache
-note.md
-Agent.md
-agent.md
+*.pyc
+_pycache/
+
+# Models & LoRA
 outputs/lora/football_player_v1.safetensors
-models/stable_diffusion/v1-5-pruned-emaonly.safetensors
+models
+# Backup & reports
+inference_backup.py
+inference_report.md
+.docs/
+
+# Tests & generated outputs
+tests/
+reports/
+tools/
+dataset/VNfootballer/
+dataset/VNfootballer.zip
