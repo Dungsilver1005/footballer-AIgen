@@ -19,3 +19,7 @@ tools/
 dataset/VNfootballer/
 dataset/VNfootballer.zip
 assets
+input_face
+output_face
+
+
